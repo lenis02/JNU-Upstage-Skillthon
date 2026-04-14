@@ -36,12 +36,6 @@
 
 Skill은 AI Agent가 필요할 때 꺼내 쓰는 **단일 목적 도구**입니다. 사람이 직접 호출하지 않아도, Agent가 상황을 판단해 스스로 Skill을 선택·실행합니다.
 
-```
-Upstage 교육 (5/8)
-    → Skillthon 제출 (5/11~15)
-        → IITP 본선: 내 Skill이 Agent Service의 부품이 됨
-```
-
 ## 크레딧 지원 — $70 무료 제공
 
 대회 참가자 전원에게 **Upstage API 크레딧 $70**을 무료로 지원합니다.

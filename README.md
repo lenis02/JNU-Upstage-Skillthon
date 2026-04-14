@@ -64,7 +64,6 @@ UPWAVE-KOH
 | 도구 | 버전 | 용도 |
 |------|------|------|
 | [Claude Code](https://claude.ai/code) | 최신 | Skill 개발 환경 |
-| Python | 3.9+ | Skill 실행 |
 | Git | — | Fork & Clone |
 | Upstage API 키 | — | [위 크레딧 지원](#크레딧-지원--70-무료-제공)으로 발급 |
 

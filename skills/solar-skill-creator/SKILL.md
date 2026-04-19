@@ -1,11 +1,11 @@
 ---
 name: solar-skill-creator
-description: Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for better triggering accuracy.
+description: Create new skills, modify and improve existing skills. Use when users want to create a skill from scratch, edit, or optimize an existing skill.
 ---
 
 # Skill Creator
 
-A skill for creating new skills and iteratively improving them.
+A skill for creating new skills using upstage.
 
 At a high level, the process of creating a skill goes like this:
 
@@ -39,8 +39,6 @@ So please pay attention to context cues to understand how to phrase your communi
 - for "JSON" and "assertion" you want to see serious cues from the user that they know what those things are before using them without explaining them
 
 It's OK to briefly explain terms if you're in doubt, and feel free to clarify terms with a short definition if you're unsure if the user will get it.
-
----
 
 ## Creating a skill
 

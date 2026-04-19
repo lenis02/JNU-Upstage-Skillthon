@@ -19,10 +19,10 @@ Use Embeddings to power RAG retrieval, deduplication, semantic search, and simil
 ## Constraints checklist
 
 - Max file size / pages / DPI: N/A — text-based API
-- Max tokens (input): ≤ 204,800 tokens total per request; recommended ≤ 512 tokens per individual string for best retrieval quality
+- Max tokens (input): **4,000 tokens per individual string** (hard cap) — strings over this limit will be rejected or truncated; **204,800 tokens total per batch** (sum across all strings in one request); recommended ≤ 512 tokens per individual string for optimal retrieval quality
 - Max batch size: 100 strings per request
-- Rate limits / quota: 100 requests/min (RPM), 300,000 tokens/min (TPM) per model alias
-- Language / locale support: English, Korean, Japanese (Korean and English are primary emphasis)
+- Rate limits / quota: 100 RPM, 300,000 TPM per model alias (Tier 0 defaults — scale up with commitment tier)
+- Language / locale support: English and Korean (per model launch blog — not specified in the embeddings API spec)
 - Embedding dimensions: fixed at 4096 — not selectable
 - Query-vs-passage: **two separate model aliases** — `embedding-query` for user queries, `embedding-passage` for corpus documents — both share the same vector space but are trained asymmetrically
 
@@ -171,7 +171,7 @@ query_vec = client.embeddings.create(
 ).data[0].embedding
 ```
 
-**Token budget per request.** Total tokens across all strings in a single request must be ≤ 204,800, with up to 100 strings per call. Individual strings exceeding their natural token length may be truncated. For best retrieval quality, keep individual chunks ≤ 512 tokens; split on paragraph or section boundaries before embedding.
+**Token budget per request.** Total tokens across all strings in a single request must be ≤ 204,800, with up to 100 strings per call. **Must chunk upstream before calling when any single input exceeds 4,000 tokens** — that is a hard per-string ceiling enforced by the API. Example: if a section is 6,000 tokens, split it into two ≤ 3,000-token chunks before passing to the embeddings call. For best retrieval quality, keep individual chunks ≤ 512 tokens; split on paragraph or section boundaries before embedding.
 
 **Batching for throughput.** Send multiple strings in a single `input` array rather than looping with one call per string — reduces latency and round-trip overhead. For large document sets, split into batches of ≤ 100 strings yourself:
 

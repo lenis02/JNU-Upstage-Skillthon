@@ -234,7 +234,7 @@ response = client.chat.completions.create(
 | `frequency_penalty` | no | `1.1` | Penalize tokens by existing frequency in output, range −2 to 2 |
 | `presence_penalty` | no | `0.0` | Penalize tokens that have appeared at all, range −2 to 2 |
 | `stop` | no | — | Array of stop strings; generation halts when any is produced |
-| `reasoning_effort` | no | `"minimal"` | `"minimal"` / `"low"` / `"medium"` / `"high"`. Controls reasoning token budget. pro3: medium up to 30% of remaining context (min 4K, max 16K tokens); high up to 60% (min 8K, max 32K). pro2: medium/high enable reasoning; low/minimal disable it. solar-mini/syn-pro: ignored. |
+| `reasoning_effort` | no | `"minimal"` | `"minimal"` / `"low"` / `"medium"` / `"high"`. Controls reasoning token budget. pro3: `low`/`minimal` = reasoning OFF (fastest); medium = reasoning ON, up to 30% of remaining context (min 4K, max 16K tokens); high = reasoning ON, up to 60% (min 8K, max 32K). pro2: medium/high enable reasoning; low/minimal disable it. solar-mini/syn-pro: ignored. |
 | `tools` | no | — | Array of function definitions (max 128). Each: `{"type":"function","function":{"name","description","parameters"}}` |
 | `tool_choice` | no | `"auto"` | `"none"`, `"auto"`, `"required"`, or `{"type":"function","function":{"name":"fn_name"}}` |
 | `parallel_tool_calls` | no | `true` | Allow multiple simultaneous tool calls per response. solar-pro3 only. |
@@ -243,7 +243,7 @@ response = client.chat.completions.create(
 
 ## Caveats and gotchas
 
-**Use the short alias, not the versioned model ID.** The alias `solar-pro3` always resolves to the current stable checkpoint. Pinning to `solar-pro3-260323` locks you to a specific version that may be deprecated without notice. Example: `"model": "solar-pro3"`.
+**Use the short alias, not the versioned model ID.** The alias `solar-pro3` always resolves to the current stable checkpoint. Pinning to a versioned ID locks you to a specific version that may be deprecated without notice. Example: `"model": "solar-pro3"`. Current checkpoints (as of the last spec update): `solar-pro3` → `solar-pro3-260323`, `solar-pro2` → `solar-pro2-251215`, `solar-mini` → `solar-mini-250422`, `syn-pro` → `syn-pro-251021`.
 
 **Function calling requires the two-turn pattern.** When the model returns `finish_reason: "tool_calls"`, append the assistant message (with `tool_calls` intact) and a `tool` role message with `tool_call_id`, `name`, and `content` (the function's result as a JSON string), then call the API again to get the final answer. Skipping the second call leaves the conversation incomplete.
 

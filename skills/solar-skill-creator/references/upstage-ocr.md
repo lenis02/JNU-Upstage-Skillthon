@@ -19,7 +19,7 @@ Extracts plain text with word-level bounding boxes and confidence scores from sc
 - Max pages: 100 pages per file (sync only — no async endpoint for OCR)
 - Max pixels per page: 200,000,000 (e.g., ~14,142 × 14,142 px)
 - Optimal text size: text occupying ≤ ~30% of the page area; larger text may cause recognition errors
-- Rate limits / quota: see console quota page (not specified in raw docs)
+- Rate limits / quota: **1 RPS** and **300 PPM** (Tier 0 defaults; higher tiers raise these limits)
 - Language / locale support:
   - Full support: Alphanumeric (Latin), Hangul (Korean), Hanja (Korean-Chinese characters)
   - Partial support: Katakana, Hiragana (Japanese)

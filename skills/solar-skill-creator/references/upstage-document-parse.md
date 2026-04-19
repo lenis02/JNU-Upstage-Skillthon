@@ -18,16 +18,16 @@ Concrete decision rule: "Use Parse when you need the document body with structur
 
 ## Constraints checklist
 - Max file size: 50 MB
-- Max pages: 100 pages per request
-- Max pixels per page: 200,000,000 pixels at 150 DPI
+- Max pages: 100 pages (sync) / 1,000 pages (async, batched in 10-page chunks)
+- Max pixels per page: 200,000,000 pixels (non-image files such as PDF/DOCX are converted to images at 150 DPI before pixel count is calculated; image files are measured directly)
 - Max tokens (input/output): N/A — file-based upload; no token limit applies
-- Rate limits: Sync 1 RPS, Async 2 RPS (per model alias); see console quota page for account-level limits
+- Rate limits (Tier 0 defaults): Sync 1 RPS / 300 PPM, Async 2 RPS / 1,200 PPM (per model alias); see console quota page for account-level limits
 - Language / locale support: Alphanumeric scripts, Hangul, Hanja supported; Hanzi/Kanji in beta — confirm current status against docs
 - Other hard limits: `base64_encoding` crops are returned per element type requested; async timeout not specified in docs
 
 ## Supported formats
 - Input: PDF, JPEG, PNG, BMP, TIFF, HEIC, DOCX, PPTX, XLSX, HWP, HWPX
-- Output (`content` and per-element `content`): `html`, `markdown`, `text` — controlled by which fields are populated in the response (all three are always present; unused ones are empty strings). The `output_formats` parameter is not documented for this endpoint — request the format you need by consuming the corresponding field in the response.
+- Output (`content` and per-element `content`): `html`, `markdown`, `text`. Controlled by the `output_formats` request parameter (string, JSON array; default `["html"]`; accepted values: `["text"]`, `["html"]`, `["markdown"]`, or any combination). Fields not requested are returned as empty strings.
 
 ## Authentication
 Set the environment variable `UPSTAGE_API_KEY` to your Upstage API key. Pass it as a Bearer token:
@@ -54,7 +54,7 @@ This endpoint is shared with Document OCR — the `model` form field selects whi
 **Response**:
 ```json
 {
-  "api": "2.0",
+  "apiVersion": "1.1",
   "content": {
     "html": "<h1 id='0'>INVOICE</h1><p id='1'>...</p>",
     "markdown": "# INVOICE\n\n...",
@@ -83,7 +83,7 @@ This endpoint is shared with Document OCR — the `model` form field selects whi
 }
 ```
 
-Coordinates are normalized to `[0, 1]` relative to page dimensions (top-left origin). Known `category` values include: `heading1`, `paragraph`, `list`, `table`, `figure`, `chart` — full taxonomy unverified; confirm against "Understanding output" docs page.
+Coordinates are normalized to `[0, 1]` relative to page dimensions (top-left origin). Known `category` values: `heading1`, `paragraph`, `list`, `table`, `figure`, `chart`, `header`, `footer`, `caption`, `equation`, `index`, `footnote`.
 
 **Curl example**:
 ```bash
@@ -94,12 +94,35 @@ curl -X POST https://api.upstage.ai/v1/document-digitization \
   -F "ocr=force"
 ```
 
+### Async endpoints
+
+For documents exceeding 100 pages (up to 1,000 pages), use the async API. Documents are processed in 10-page batches.
+
+| Method | Endpoint |
+|---|---|
+| `POST` | `https://api.upstage.ai/v1/document-digitization/async` |
+| `GET` | `https://api.upstage.ai/v1/document-digitization/requests/{request_id}` |
+| `GET` | `https://api.upstage.ai/v1/document-digitization/requests` |
+
+**Job lifecycle**: `submitted` → `started` → `completed` | `failed`
+
+**Batch lifecycle**: `scheduled` → `started` → `completed` | `failed` | `retrying`
+
+**Important notes**:
+- Each `download_url` in a completed batch expires **15 minutes** after issuance; re-fetch the request status to get a fresh URL.
+- Results are retained for **30 days** after completion.
+
 ## Parameters
 | Name | Required | Default | Description |
 |---|---|---|---|
 | `document` | yes | — | The document file (multipart file part). Accepts PDF, JPEG, PNG, BMP, TIFF, HEIC, DOCX, PPTX, XLSX, HWP, HWPX. |
 | `model` | yes | — | Model alias. Use `document-parse` (points to `document-parse-260128`, 1 RPS sync / 2 RPS async) or `document-parse-nightly` for the latest nightly build. |
-| `ocr` | no | auto | Set to `"force"` to run OCR even on digital-born (text-layer) PDFs. Omit or leave blank to let the model decide. |
+| `mode` | no | `standard` | Processing mode: `standard` (fast, text-heavy docs), `enhanced` (VLM-based; better on complex tables/charts/images; additional cost; **20-page limit**), or `auto` (classifies each page as standard or enhanced automatically). Requires `document-parse-260128` or later. |
+| `output_formats` | no | `["html"]` | JSON array of desired output formats. Accepted values: `["text"]`, `["html"]`, `["markdown"]`, or any combination (e.g., `["html","markdown"]`). |
+| `ocr` | no | `auto` | `auto`: OCR only for image-based pages; digital-born PDFs use embedded text. `force`: convert all pages to images and always run OCR. |
+| `coordinates` | no | `true` | Whether to return bounding-box coordinates for each element. Set to `false` to omit coordinate arrays from the response. |
+| `chart_recognition` | no | `true` | Convert detected charts (bar, line, pie) to structured tables. Ignored (always enabled) when `mode=enhanced`. |
+| `merge_multipage_tables` | no | `false` | Merge tables that span across page boundaries into a single table element. Always enabled when `mode=enhanced`. |
 | `base64_encoding` | no | — | JSON-style list of element category strings (e.g., `"['table']"`, `"['figure','chart']"`) for which the response should include a base64-encoded image crop of each matched element. |
 
 ## Caveats and gotchas
@@ -126,7 +149,7 @@ Each matched element in `elements[]` will then carry a `base64_encoding` field w
 
 **When building a RAG pipeline**, use `content.html` as the canonical representation, chunk by iterating `elements[]` (each element has its own `content` and `coordinates`), then embed each chunk with `embedding-passage` (see `upstage-embeddings.md`). Chunking at the element level preserves semantic boundaries better than fixed-token splitting.
 
-**When the document exceeds sync throughput (1 RPS)**, use the Async API which allows 2 RPS — endpoint path not fully verified in available docs; confirm against the "Handling large documents" page in the Upstage console.
+**When the document exceeds sync throughput or the 100-page limit**, use the Async API (`POST /v1/document-digitization/async`) which allows 2 RPS / 1,200 PPM and supports up to 1,000 pages. See the Async endpoints subsection above for lifecycle details.
 
 **Python drop-in example**:
 ```python

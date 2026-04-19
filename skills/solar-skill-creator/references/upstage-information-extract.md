@@ -17,13 +17,15 @@ Use Information Extract when you know exactly which fields you want (e.g., `invo
 ## Constraints checklist
 - Max file size: 50 MB
 - Max pages: 100 pages per document
-- Max resolution: 200,000,000 pixels per page at 150 DPI
-- Schema name: ≤ 64 characters, alphanumerics / `_` / `-` only
+- Max resolution: 200,000,000 pixels per page
 - Rate limits: 1 RPS (sync) / 2 RPS (async) — see console quota page for account-level overrides
-- Language / locale support: Alphanumeric, Hangul, Hanja, Katakana, Hiragana; Hanzi/Kanji in beta
-- Enhanced mode: `extra_body={"mode": "enhanced"}` available (Beta) for complex tables, poor scans, or handwriting — higher cost, confirm pricing against docs
+- Language / locale support: Alphanumeric, Hangul, Hanja; Hanzi/Kanji in beta
+- Enhanced mode: `mode: "enhanced"` top-level parameter (Beta) for complex tables, poor scans, or handwriting — higher cost, confirm pricing against docs
+- Sync schema limits: max 100 properties, max 15,000 chars total schema length
+- Async schema limits: max 5,000 properties, max 120,000 chars total schema length
+- Schema design restrictions: root must be `object`; first-level properties must be `string`/`integer`/`number`/`array` (`object` is NOT permitted at the first level); nested arrays not allowed (array items cannot themselves be arrays); total length of all property names and definition names ≤ 10,000 chars
 - Async timeout: Not specified in docs
-- Prebuilt extractors: Available for high-volume, fixed document types (fine-tuned per-type models) — endpoint/pricing unverified, confirm against docs
+- Prebuilt extractors: Available for high-volume, fixed document types (fine-tuned per-type models) — same endpoint `POST /v1/information-extraction`, multipart/form-data request, `fields[]` response shape (see Caveats section)
 
 ## Supported formats
 - Input: JPEG, PNG, BMP, PDF, TIFF, HEIC, DOCX, PPTX, XLSX, HWP, HWPX — submitted as a base64 data URL inside a Chat Completions `image_url` content part; plus a `response_format` JSON Schema body in the same request
@@ -49,7 +51,7 @@ client = OpenAI(
 ```
 
 ## API format
-**Endpoint**: `POST https://api.upstage.ai/v1/information-extraction/chat/completions`
+**Endpoint**: `POST https://api.upstage.ai/v1/information-extraction`
 
 The API follows the OpenAI Chat Completions wire format. The document is attached as a base64 data URL inside the user message's `image_url` content part; the desired output schema is declared in `response_format`.
 
@@ -237,7 +239,7 @@ print(result["line_items"])
 ```bash
 B64=$(base64 -i invoice.pdf)
 
-curl -X POST https://api.upstage.ai/v1/information-extraction/chat/completions \
+curl -X POST https://api.upstage.ai/v1/information-extraction \
   -H "Authorization: Bearer $UPSTAGE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -266,13 +268,29 @@ curl -X POST https://api.upstage.ai/v1/information-extraction/chat/completions \
   }'
 ```
 
+## Async API
+
+For large documents (up to 1,000 pages) or batch jobs (up to 20 documents), use the async endpoints:
+
+```
+POST https://api.upstage.ai/v1/information-extraction/async
+GET  https://api.upstage.ai/v1/information-extraction/jobs/{job_id}
+```
+
+The async request uses `multipart/form-data` with `documents` file fields and a `schema` JSON string field. Results are retained for 30 days after completion. All documents in a single job must use the same schema. HWP/HWPX are not supported in async mode. Poll every 5–10 seconds; the job reaches `COMPLETED`, `PARTIALLY_COMPLETED`, or `FAILED`.
+
 ## Parameters
 | Name | Required | Default | Description |
 |---|---|---|---|
 | `model` | yes | — | Model alias to use. `information-extract` (points to `information-extract-260304`); `information-extract-nightly` also available |
 | `messages` | yes | — | Array with a single `user` message containing an `image_url` content part whose `url` is a base64 data URL of the document |
 | `response_format` | yes | — | Object with `type: "json_schema"` and a `json_schema` object containing `name` (≤ 64 chars, `[a-zA-Z0-9_-]` only) and `schema` (JSON Schema object describing the fields to extract) |
-| `extra_body.mode` | no | standard | Set to `"enhanced"` (Beta) to improve accuracy on complex tables, poor-quality scans, or handwritten content — higher cost |
+| `mode` | no | standard | (Beta) Top-level JSON body field. Set to `"enhanced"` to improve accuracy on complex tables, poor-quality scans, or handwritten content — higher cost |
+| `location` | no | false | (Beta) Return bounding-box coordinates for extracted fields |
+| `location_granularity` | no | element | (Beta) Coordinate detail level: `element`, `word`, or `all` |
+| `confidence` | no | false | (Beta) Return `high`/`low` confidence flags per field |
+| `split` | no | false | (Beta) Split multi-document files; results in separate `choices` items |
+| `chunking` | no | — | (Beta) For 30+ page or 50+ row-table documents: e.g. `{"pages_per_chunk": 5}` |
 
 ## Caveats and gotchas
 **Always add a `description` to every schema field.** The model uses the description to disambiguate which value in the document maps to which field. Without it, accuracy drops on documents that contain multiple similar-looking numbers or dates. Example:
@@ -300,8 +318,16 @@ curl -X POST https://api.upstage.ai/v1/information-extraction/chat/completions \
 
 **`message.content` is a stringified JSON string, not a dict.** Always call `json.loads(resp.choices[0].message.content)` before accessing fields — skipping this step causes a `TypeError` or `AttributeError` at runtime.
 
+**When `location: true` or `confidence: true`, detailed results move to `tool_calls`.** The main `choices[0].message.content` still contains the extracted field values, but coordinate and confidence data are returned in `choices[0].message.tool_calls[0].function.arguments` (function name `additional_values`). Always check for `tool_calls` before trying to read location or confidence data:
+```python
+result = json.loads(resp.choices[0].message.content)
+if resp.choices[0].message.tool_calls:
+    additional = json.loads(resp.choices[0].message.tool_calls[0].function.arguments)
+    # additional contains per-field coordinates and/or confidence levels
+```
+
 **The base URL is different from Chat/Embeddings.** The namespace is `/information-extraction`, not `/v1` alone. OpenAI SDK users must set `base_url="https://api.upstage.ai/v1/information-extraction"`. Using the standard `https://api.upstage.ai/v1` base URL will return a 404 or route to the wrong handler.
 
-**For high-volume fixed-format documents, consider Prebuilt extraction.** Upstage offers fine-tuned per-document-type models (e.g., dedicated invoice extractor) that can outperform the universal model at lower cost for known schemas. Endpoint and pricing are unverified — confirm against docs before building a production pipeline around a specific prebuilt type.
+**For high-volume fixed-format documents, consider Prebuilt extraction.** Upstage offers fine-tuned per-document-type models (e.g., `receipt-extraction`, `air-waybill-extraction`) that can outperform the universal model at lower cost for known schemas. The endpoint is the same `POST https://api.upstage.ai/v1/information-extraction`, but the request uses `multipart/form-data` (fields: `model` + `document` file) rather than JSON with a `response_format` schema. The response shape is also different: instead of `choices[0].message.content`, prebuilt extractors return a top-level `fields` array where each item has `key`, `type`, `value`, and `confidence` (0–1 float). Max 30 pages per document; 1 RPS per prebuilt type. Confirm pricing against docs before building a production pipeline.
 
 **Pair with Document Parse for very large or multi-section documents.** For PDFs with 50+ pages where only a subset of pages contain the target fields, run Document Parse first to get per-element structure, identify the relevant pages, then submit only those pages to Information Extract. This avoids hitting the 100-page limit and reduces token cost.

@@ -20,16 +20,16 @@ Concrete pattern: receive a batch of incoming files → Classify each → branch
 - Max file size: 50 MB
 - Max pages (sync): 100 pages per document
 - Max resolution: 200,000,000 pixels per page
+- Min category count: 1 class required
 - Max category count: 1,000 document classes per request
-- Recommended category count: 3–10 for optimal accuracy (per MCP server guidance)
-- Rate limits: 1 RPS (sync) — see console quota page for account-level overrides
+- Duplicate class handling: classes with duplicate `const` names are silently ignored
 - Language / locale support: Not specified in docs — verify against current Upstage docs before use
-- Async variant: Not confirmed in docs — verify against current Upstage docs before use
-- Custom vs prebuilt: Categories are fully caller-defined; 13 sensible defaults are available via the MCP wrapper but the raw API accepts any label set you define
+- Async variant: Sync only (confirmed in docs)
+- Custom vs prebuilt: Categories are fully caller-defined; the raw API accepts any label set you define
 
 ## Supported formats
 - Input: JPEG, PNG, BMP, PDF, TIFF, HEIC, DOCX, PPTX, XLSX, HWP, HWPX — submitted as a base64 data URL inside a Chat Completions `image_url` content part; plus a `response_format` JSON Schema body defining the category list
-- Output: The winning category label delivered as a string in `choices[0].message.content`; confidence score and per-page split metadata delivered in `choices[0].message.tool_calls[0].function.arguments` under `additional_values` (when the API returns it)
+- Output: The winning category label delivered as a string in `choices[0].message.content`; confidence score (nested under `document_type`) and per-page split metadata delivered in `choices[0].message.tool_calls[0].function.arguments` as a JSON string (when the API returns it)
 
 ## Authentication
 Set the environment variable `UPSTAGE_API_KEY` and pass it as a Bearer token:
@@ -38,7 +38,7 @@ Set the environment variable `UPSTAGE_API_KEY` and pass it as a Bearer token:
 Authorization: Bearer $UPSTAGE_API_KEY
 ```
 
-When using the OpenAI SDK, supply the key as `api_key` and point `base_url` at the Upstage API root:
+When using the OpenAI SDK, supply the key as `api_key` and point `base_url` at the Document Classification endpoint:
 
 ```python
 from openai import OpenAI
@@ -46,7 +46,7 @@ import os
 
 client = OpenAI(
     api_key=os.environ["UPSTAGE_API_KEY"],
-    base_url="https://api.upstage.ai/v1",
+    base_url="https://api.upstage.ai/v1/document-classification",
 )
 ```
 
@@ -110,7 +110,7 @@ The API follows the OpenAI Chat Completions wire format. The document is attache
             "type": "function",
             "function": {
               "name": "additional_values",
-              "arguments": "{\"_value\":\"invoice\",\"confidence_score\":0.97,\"pages\":[1],\"split_criteria_info\":null}"
+              "arguments": "{\"document_type\":{\"_value\":\"invoice\",\"confidence_score\":0.99},\"pages\":[1],\"split_criteria_info\":null}"
             }
           }
         ]
@@ -127,7 +127,7 @@ The API follows the OpenAI Chat Completions wire format. The document is attache
 }
 ```
 
-The winning category is in `choices[0].message.content` as a plain string. The confidence score (0–1) and page list are in `choices[0].message.tool_calls[0].function.arguments` — parse that JSON string to access `confidence_score`.
+The winning category is in `choices[0].message.content` as a plain string. The confidence score (0–1) is nested inside `document_type` and the page list is a top-level sibling — parse the JSON string in `choices[0].message.tool_calls[0].function.arguments` and access `args["document_type"]["confidence_score"]` and `args["pages"]`.
 
 **Python example (full runnable)**:
 ```python
@@ -136,7 +136,7 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key=os.environ["UPSTAGE_API_KEY"],
-    base_url="https://api.upstage.ai/v1",
+    base_url="https://api.upstage.ai/v1/document-classification",
 )
 
 with open("document.pdf", "rb") as f:
@@ -172,12 +172,12 @@ resp = client.chat.completions.create(
 
 category = resp.choices[0].message.content  # e.g. "invoice"
 
-# Confidence score lives in tool_calls additional_values
+# Confidence score lives in tool_calls additional_values, nested under document_type
 tool_calls = resp.choices[0].message.tool_calls
 if tool_calls:
     additional = json.loads(tool_calls[0].function.arguments)
-    confidence = additional.get("confidence_score")  # e.g. 0.97
-    pages = additional.get("pages")                  # e.g. [1, 2]
+    confidence = additional["document_type"]["confidence_score"]  # e.g. 0.99
+    pages = additional["pages"]                                   # e.g. [1, 2]
 else:
     confidence = None
     pages = None
@@ -228,11 +228,11 @@ curl -X POST https://api.upstage.ai/v1/document-classification \
 ## Parameters
 | Name | Required | Default | Description |
 |---|---|---|---|
-| `model` | yes | — | Must be `document-classify` |
+| `model` | yes | — | Use `document-classify` (production). `document-classify-nightly` is an experimental alias — not for production use |
 | `messages` | yes | — | Array with a single `user` message containing an `image_url` content part whose `url` is a base64 data URL of the document |
 | `response_format` | yes | — | Object with `type: "json_schema"` and a `json_schema` object; the `schema` must be `type: "string"` with a `oneOf` array of `{"const": "<label>", "description": "<what this category means>"}` objects |
 | `split` | no | `false` | When `true`, the API attempts to detect multiple logical documents within one file and classifies each separately |
-| `split_criteria` | no | — | Array of objects providing additional hints for splitting multi-document files; used together with `split: true` |
+| `split_criteria` | no | — | Array of objects providing additional hints for splitting multi-document files; used together with `split: true`. Each object has `criterion` (string) and `description` (string) fields — e.g. `[{"criterion": "card_id", "description": "The id that indicates each unit card."}]` |
 
 ## Caveats and gotchas
 **Define categories with clear, non-overlapping descriptions.** The model uses the `description` field on each `const` entry to understand what that category means. Vague or overlapping labels reduce accuracy. Prefer `["invoice", "receipt", "purchase_order"]` over `["invoice", "bill", "invoice_or_receipt"]`. Each description should state the distinguishing characteristic of that document type.
@@ -242,10 +242,10 @@ curl -X POST https://api.upstage.ai/v1/document-classification \
 {"const": "others", "description": "Any document that does not match the categories above"}
 ```
 
-**Keep the category count between 3 and 10 for best accuracy.** The API supports up to 1,000 classes, but classification accuracy degrades as the label space grows and descriptions start to overlap. For larger taxonomies, consider a two-stage approach: coarse classification first (e.g., `financial` / `legal` / `hr`), then fine-grained classification within each bucket.
+**Too many labels can confuse the model — start with core labels and expand gradually.** The API supports 1–1,000 classes, but classification accuracy degrades as the label space grows and descriptions start to overlap. For larger taxonomies, consider a two-stage approach: coarse classification first (e.g., `financial` / `legal` / `hr`), then fine-grained classification within each bucket.
 
-**Confidence score is not in `message.content` — it is in `tool_calls`.** The returned category string is in `choices[0].message.content`. The confidence score (0.0–1.0) is in `choices[0].message.tool_calls[0].function.arguments` as a JSON string containing `confidence_score`. Always parse `tool_calls` separately if you need the score.
+**Confidence score is not in `message.content` — it is in `tool_calls`.** The returned category string is in `choices[0].message.content`. The confidence score (0.0–1.0) is nested inside the `document_type` object in `choices[0].message.tool_calls[0].function.arguments`: parse that JSON string and access `args["document_type"]["confidence_score"]`. The `pages` list is a top-level sibling of `document_type`, not nested inside it.
 
 **When you have no fixed category list, fall back to Chat.** Document Classification requires a defined label set at call time. If the use-case is open-ended (e.g., "tell me what kind of document this is" without a known taxonomy), use Solar LLM Chat with a structured-output schema instead — Classification will not return meaningful results without concrete `const` values to choose from.
 
-**The base URL for the OpenAI SDK is `https://api.upstage.ai/v1`, not a sub-namespace.** Unlike Information Extract (which uses `/v1/information-extraction`), the Document Classification endpoint lives directly under `/v1`. Use `base_url="https://api.upstage.ai/v1"` when initializing the OpenAI SDK client.
+**The base URL for the OpenAI SDK must point to the classification sub-namespace.** Use `base_url="https://api.upstage.ai/v1/document-classification"` when initializing the OpenAI SDK client — not the generic `/v1` root. This mirrors the pattern used by Information Extract (`/v1/information-extraction`).

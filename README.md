@@ -160,7 +160,8 @@ description: 이 스킬이 하는 일과 언제 사용해야 하는지. (WHAT + 
 |------|------|
 | [solar-skill-creator Marketplace](https://github.com/GoBeromsu/JNU-Upstage-Skillthon) | 이 repo — `solar-skill-creator` 마켓플레이스 |
 | [Claude Code Docs](https://docs.anthropic.com/en/docs/claude-code/) | Claude Code 공식 문서 (Skills, Plugins, Marketplace) |
-| [Upstage Console Docs](https://console.upstage.ai/docs) | Solar LLM, Embeddings, Document Parse API 레퍼런스 |
+| [Upstage Console Docs](https://console.upstage.ai/docs/capabilities) | Solar LLM, Embeddings, Document Parse API 레퍼런스 |
+| [Upstage API Spec (machine-readable)](https://console.upstage.ai/api/docs/for-agents/raw) | Agent가 바로 읽을 수 있는 Upstage API 원본 스펙 |
 
 ---
 

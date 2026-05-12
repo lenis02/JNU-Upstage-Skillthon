@@ -1,4 +1,5 @@
 .env
+skills/*/assets/input.json
 __pycache__/
 *.pyc
 *.pyo
